@@ -86,3 +86,4 @@ if question:
         show_salary_trends()
     else:
         st.warning("⚠️ هذا السؤال غير مدعوم حاليًا.")
+
