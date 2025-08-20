@@ -1,12 +1,24 @@
-streamlit==1.26.0
-pandas==2.2.0
-numpy==1.27.0
-matplotlib==3.8.0
-seaborn==0.12.3
-plotly==5.16.0
-scikit-learn==1.3.0
-imbalanced-learn==1.12.1
-requests==2.31.0
+# requirements.txt
+
+# Streamlit - لإنشاء الواجهة التفاعلية
+streamlit>=1.25.0
+
+# Pandas و NumPy - لمعالجة البيانات
+pandas>=2.1.0
+numpy>=1.25.0
+
+# Plotly - لرسم الرسوم البيانية التفاعلية
+plotly>=5.20.0
+
+# Scikit-learn - لنماذج التنبؤ (RandomForest, Logistic Regression, وغيرها)
+scikit-learn>=1.3.0
+
+# Seaborn و Matplotlib - للرسوم البيانية التقليدية (اختياري إذا أردت)
+matplotlib>=3.8.0
+seaborn>=0.13.2
+
+# imbalanced-learn - لتوازن البيانات إذا استخدمت SMOTE
+imbalanced-learn>=1.12.0
 
 
 
