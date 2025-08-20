@@ -1,134 +1,90 @@
-# hr_analytics_app.py
 import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime
-import os
+import zipfile
 
-# ===========================
-# 💠 تحميل البيانات
-# ===========================
+# 💠 ألوان
+pink = "#ff69b4"
+black = "#000000"
+
+# 🧠 تحميل البيانات من ملفات zip
 @st.cache_data
 def load_data():
-    # ملفات محلية أو ZIP
-    employee_file = "employee.csv"
-    salary_file = "salary.csv"  # ممكن يكون zip: "salary.zip"
-    department_file = "department.csv"
-    dept_emp_file = "department_employee.csv"
-    title_file = "title.csv"
-    
-    # قراءة الملفات
-    employee = pd.read_csv(employee_file)
-    salary = pd.read_csv(salary_file)
-    department = pd.read_csv(department_file)
-    dept_emp = pd.read_csv(dept_emp_file)
-    title = pd.read_csv(title_file)
-    
-    # دمج بيانات الموظفين مع الأقسام
-    df_merged = employee.merge(dept_emp, left_on='id', right_on='employee_id', how='left')
-    df_merged = df_merged.merge(department, left_on='department_id', right_on='id', how='left')
-    df_merged = df_merged.merge(salary, left_on='id', right_on='employee_id', how='left')
-    
-    # تحويل birth_date لـ age
-    df_merged['birth_date'] = pd.to_datetime(df_merged['birth_date'], errors='coerce')
-    fixed_date = pd.to_datetime('2002-01-01')
-    df_merged['age'] = ((fixed_date - df_merged['birth_date']).dt.days / 365.25).astype('Int64')
-    
-    return employee, salary, department, dept_emp, df_merged, title
+    # مثال على salary
+    with zipfile.ZipFile("data/salary.zip") as z:
+        with z.open("salary.csv") as f:
+            salary = pd.read_csv(f)
 
-# ===========================
+    # باقي الملفات CSV مباشرة
+    employee = pd.read_csv("data/employee.csv")
+    department = pd.read_csv("data/department.csv")
+    dept_emp = pd.read_csv("data/department_employee.csv")
+    dept_manager = pd.read_csv("data/department_manager.csv")
+    title = pd.read_csv("data/title.csv")
+
+    # حساب العمر
+    employee['birth_date'] = pd.to_datetime(employee['birth_date'])
+    employee['age'] = (datetime(2002,1,1).year - employee['birth_date'].dt.year)
+
+    return salary, employee, department, dept_emp, dept_manager, title
+
 # تحميل البيانات
-# ===========================
-employee, salary, department, dept_emp, df_merged, title = load_data()
+salary, employee, department, dept_emp, dept_manager, title = load_data()
 
-# ===========================
-# Streamlit Layout
-# ===========================
-st.set_page_config(page_title="HR Analytics Dashboard", layout="wide")
-st.title("💼 HR Analytics Dashboard")
+# 💼 Streamlit Dashboard
+st.markdown(f"<h1 style='color:{pink}; text-align:center;'>💼 HR Analytics Dashboard</h1>", unsafe_allow_html=True)
+st.markdown("---")
 
+# اختيار التحليل
 options = [
     "Top salaries",
+    "Average salary per year",
     "Salary growth",
-    "Average tenure per department",
-    "Salary vs Tenure analysis",
+    "Distribution of Employee Ages",
     "Department with highest average salary",
-    "Gender pay gap",
-    "Titles with highest pay",
-    "Employee distribution by department",
+    "Salary Distribution by Department"
 ]
-
 question = st.selectbox("Choose a business insight:", options)
-show_btn = st.button("✨ Show Insight ✨")
+center_button = st.button("✨ Show me the Insight ✨")
 
-if show_btn and question:
+if center_button and question:
     question = question.strip().lower()
     fig = None
-    
-    # ===========================
-    # 1️⃣ Top salaries
-    # ===========================
+
     if question == "top salaries":
         top = salary.groupby('employee_id')['amount'].max().sort_values(ascending=False).head(10).reset_index()
         top.columns = ['Employee ID', 'Top Salary']
-        st.dataframe(top.style.format({'Top Salary': '{:,.0f}'}))
+        st.dataframe(top.style.format({'Top Salary':'{:,.0f}'}))
+
+    elif question == "average salary per year":
+        salary['from_date'] = pd.to_datetime(salary['from_date'])
+        salary['year'] = salary['from_date'].dt.year
+        avg_salary = salary.groupby('year')['amount'].mean().reset_index()
+        fig = px.line(avg_salary, x='year', y='amount', title="Average Salary per Year", markers=True)
     
-    # ===========================
-    # 2️⃣ Salary growth
-    # ===========================
     elif question == "salary growth":
         emp_growth = salary.groupby('employee_id')['amount'].agg(['min','max'])
-        emp_growth['growth_%'] = ((emp_growth['max'] - emp_growth['min']) / emp_growth['min']) * 100
+        emp_growth['growth_%'] = ((emp_growth['max'] - emp_growth['min'])/emp_growth['min'])*100
         top_growth = emp_growth.sort_values('growth_%', ascending=False).head(10).reset_index()
-        fig = px.bar(top_growth, x='employee_id', y='growth_%', title="Top 10 Salary Growth %", color='growth_%', color_continuous_scale='RdPu')
-    
-    # ===========================
-    # 3️⃣ Average tenure per department
-    # ===========================
-    elif question == "average tenure per department":
-        dept_tenure = df_merged.groupby('dept_name')['company_tenure'].mean().reset_index()
-        fig = px.bar(dept_tenure, x='dept_name', y='company_tenure', title="Average Tenure per Department", color='company_tenure', color_continuous_scale='pinkyl')
-    
-    # ===========================
-    # 4️⃣ Salary vs Tenure
-    # ===========================
-    elif question == "salary vs tenure analysis":
-        fig = px.scatter(df_merged, x='company_tenure', y='amount', color='dept_name', hover_data=['first_name','last_name'], title="Salary vs Tenure by Department")
-    
-    # ===========================
-    # 5️⃣ Department with highest avg salary
-    # ===========================
+        fig = px.bar(top_growth, x='employee_id', y='growth_%', title="Top 10 Salary Growth %", color='growth_%', color_continuous_scale='pinkyl')
+
+    elif question == "distribution of employee ages":
+        age_counts = employee['age'].value_counts().sort_index().reset_index()
+        age_counts.columns = ['Age', 'Count']
+        fig = px.bar(age_counts, x='Age', y='Count', title="Distribution of Employee Ages", color='Count', color_continuous_scale='pinkyl')
+
     elif question == "department with highest average salary":
-        dept_avg = df_merged.groupby('dept_name')['amount'].mean().reset_index().sort_values('amount', ascending=False)
+        merged = salary.merge(employee[['id','dept_name']], left_on='employee_id', right_on='id', how='left')
+        dept_avg = merged.groupby('dept_name')['amount'].mean().reset_index().sort_values('amount', ascending=False)
         fig = px.bar(dept_avg, x='dept_name', y='amount', title="Department with Highest Avg Salary", color='amount', color_continuous_scale='pinkyl')
-    
-    # ===========================
-    # 6️⃣ Gender pay gap
-    # ===========================
-    elif question == "gender pay gap":
-        gender_avg = df_merged.groupby('gender')['amount'].mean().reset_index()
-        fig = px.bar(gender_avg, x='gender', y='amount', title="Average Salary by Gender", color='gender', color_discrete_sequence=['deeppink','purple'])
-    
-    # ===========================
-    # 7️⃣ Titles with highest pay
-    # ===========================
-    elif question == "titles with highest pay":
-        title_avg = df_merged.groupby('title')['amount'].mean().sort_values(ascending=False).reset_index().head(10)
-        fig = px.bar(title_avg, x='title', y='amount', title="Top 10 Titles by Salary", color='amount', color_continuous_scale='pinkyl')
-    
-    # ===========================
-    # 8️⃣ Employee distribution
-    # ===========================
-    elif question == "employee distribution by department":
-        dist = df_merged['dept_name'].value_counts().reset_index()
-        dist.columns = ['Department','Count']
-        fig = px.bar(dist, x='Department', y='Count', title="Employee Distribution by Department", color='Count', color_continuous_scale='Agsunset')
-    
-    # ===========================
-    # Show figure if exists
-    # ===========================
+
+    elif question == "salary distribution by department":
+        merged = salary.merge(employee[['id','dept_name']], left_on='employee_id', right_on='id', how='left')
+        fig = px.box(merged, x='dept_name', y='amount', title="Salary Distribution by Department", color='dept_name')
+
     if fig:
-        fig.update_layout(template="plotly_dark", plot_bgcolor='black', paper_bgcolor='black')
+        fig.update_layout(template="plotly_dark", plot_bgcolor='black', paper_bgcolor='black', font=dict(color='pink'))
         st.plotly_chart(fig, use_container_width=True)
