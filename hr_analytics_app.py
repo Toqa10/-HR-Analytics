@@ -1,89 +1,77 @@
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
-import seaborn as sns
-import io
 
-# ========== إعداد الصفحة ==========
-st.set_page_config(
-    page_title="HR Analytics Dashboard",
-    page_icon="📊",
-    layout="wide"
-)
-
-# CSS لتصميم الخلفية والبطاقات
-st.markdown("""
-    <style>
-    .stApp {
-        background-color: #f5f5f5;
-        color: #333333;
-        font-family: "Arial", sans-serif;
-    }
-    .card {
-        background: white;
-        padding: 20px;
-        border-radius: 15px;
-        box-shadow: 0px 4px 12px rgba(0,0,0,0.1);
-        margin-bottom: 20px;
-    }
-    .card h3 {
-        text-align: center;
-        color: #1a73e8;
-    }
-    </style>
-""", unsafe_allow_html=True)
-
-# ========== تحميل البيانات ==========
+# تحميل البيانات
 @st.cache_data
 def load_data():
     employees = pd.read_csv("employees.csv")
-    salary = pd.read_csv("salary.csv")
-    dept = pd.read_csv("department.csv")
-    return employees, salary, dept
+    departments = pd.read_csv("departments.csv")
+    salaries = pd.read_csv("salary.csv")
+    return employees, departments, salaries
 
-employees, salary, dept = load_data()
+# واجهة التطبيق
+def main():
+    st.set_page_config(page_title="HR Analytics", layout="wide")
 
-# ========== عنوان التطبيق ==========
-st.title("📊 HR Analytics Dashboard")
-st.write("اكتب سؤالًا متعلقًا ببيانات الموارد البشرية للحصول على Visualization مناسب")
+    # تصميم الخلفية (لون ثابت)
+    st.markdown("""
+        <style>
+        .stApp {
+            background-color: #f0f4f8;
+        }
+        .card {
+            background-color: white;
+            padding: 20px;
+            border-radius: 15px;
+            box-shadow: 2px 2px 8px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        </style>
+    """, unsafe_allow_html=True)
 
-# ========== حقل السؤال ==========
-question = st.text_input("اكتب سؤالك هنا:")
+    st.title("HR Analytics Dashboard")
 
-# ========== معالجة السؤال ==========
-def show_gender_distribution():
-    st.markdown('<div class="card"><h3>Gender Distribution per Department</h3>', unsafe_allow_html=True)
-    gender_counts = employees.groupby(['dept_name', 'gender']).size().reset_index(name='count')
-    fig, ax = plt.subplots(figsize=(10,6))
-    sns.barplot(x='dept_name', y='count', hue='gender', data=gender_counts, ax=ax)
-    plt.xticks(rotation=45)
-    plt.title("Gender Distribution per Department")
-    st.pyplot(fig)
-    buf = io.BytesIO()
-    fig.savefig(buf, format="png")
-    st.download_button("Download Chart", data=buf, file_name="gender_distribution.png", mime="image/png")
-    st.markdown('</div>', unsafe_allow_html=True)
+    employees, departments, salaries = load_data()
 
-def show_salary_trends():
-    st.markdown('<div class="card"><h3>Salary Trends Over Time</h3>', unsafe_allow_html=True)
-    salary["year"] = pd.to_datetime(salary["from_date"]).dt.year
-    avg_salary = salary.groupby("year")["salary"].mean().reset_index()
-    fig, ax = plt.subplots(figsize=(10,6))
-    sns.lineplot(x="year", y="salary", data=avg_salary, ax=ax, marker="o")
-    plt.title("Average Salary Trends")
-    st.pyplot(fig)
-    buf = io.BytesIO()
-    fig.savefig(buf, format="png")
-    st.download_button("Download Chart", data=buf, file_name="salary_trends.png", mime="image/png")
-    st.markdown('</div>', unsafe_allow_html=True)
+    # سؤال المستخدم
+    question = st.text_input("Ask an HR-related question:")
 
-# ========== الربط مع الأسئلة ==========
-if question:
-    question_lower = question.lower()
-    if "gender" in question_lower or "distribution" in question_lower:
-        show_gender_distribution()
-    elif "salary" in question_lower or "trend" in question_lower:
-        show_salary_trends()
-    else:
-        st.warning("⚠️ هذا السؤال غير مدعوم حاليًا.")
+    if question:
+        if "gender distribution" in question.lower():
+            with st.container():
+                st.markdown('<div class="card">', unsafe_allow_html=True)
+                st.subheader("Gender Distribution by Department")
+                gender_counts = employees.groupby(['dept_name', 'gender']).size().reset_index(name='count')
 
+                fig, ax = plt.subplots(figsize=(8, 5))
+                for gender in gender_counts['gender'].unique():
+                    data = gender_counts[gender_counts['gender'] == gender]
+                    ax.bar(data['dept_name'], data['count'], label=gender)
+
+                ax.set_ylabel('Count')
+                ax.set_xlabel('Department')
+                ax.legend()
+                plt.xticks(rotation=45)
+                st.pyplot(fig)
+                st.markdown('</div>', unsafe_allow_html=True)
+
+        elif "average salary" in question.lower():
+            with st.container():
+                st.markdown('<div class="card">', unsafe_allow_html=True)
+                st.subheader("Average Salary by Department")
+                avg_salary = salaries.groupby('dept_name')['salary'].mean().reset_index()
+
+                fig, ax = plt.subplots(figsize=(8, 5))
+                ax.bar(avg_salary['dept_name'], avg_salary['salary'])
+                ax.set_ylabel('Average Salary')
+                ax.set_xlabel('Department')
+                plt.xticks(rotation=45)
+                st.pyplot(fig)
+                st.markdown('</div>', unsafe_allow_html=True)
+
+        else:
+            st.warning("This question is not supported.")
+
+if __name__ == "__main__":
+    main()
