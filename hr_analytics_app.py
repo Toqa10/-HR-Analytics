@@ -1,4 +1,5 @@
-رimport os
+import os
+
 import zipfile
 import subprocess
 import platform
