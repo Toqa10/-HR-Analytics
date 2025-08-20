@@ -1,97 +1,92 @@
 import streamlit as st
 import pandas as pd
-import matplotlib.pyplot as plt
-import io
+import numpy as np
+import plotly.express as px
+import plotly.graph_objects as go
+from datetime import datetime
 
-# إعدادات التصميم
-st.set_page_config(page_title="HR Analytics App", layout="wide")
-st.markdown("""
-    <style>
-        .main {
-            background-color: #f5f7fa;
-        }
-        .card {
-            background-color: #ffffff;
-            padding: 20px;
-            border-radius: 15px;
-            box-shadow: 2px 2px 12px rgba(0,0,0,0.1);
-            margin-bottom: 20px;
-        }
-    </style>
-""", unsafe_allow_html=True)
+# 💠 ألوان
+pink = "#ff69b4"
 
-# تحميل البيانات
+# 🧠 تحميل البيانات من الملفات المحلية
 @st.cache_data
 def load_data():
-    employees = pd.read_csv("employees.csv")
-    departments = pd.read_csv("departments.csv")
-    salaries = pd.read_csv("salary.csv")
-    titles = pd.read_csv("titles.csv")
-    return employees, departments, salaries, titles
+    salary = pd.read_csv("salary.csv")
+    employees = pd.read_csv("employee.csv")
+    department = pd.read_csv("department.csv")
+    dept_emp = pd.read_csv("department_employee.csv")
 
-employees, departments, salaries, titles = load_data()
+    # حساب العمر
+    employees['birth_date'] = pd.to_datetime(employees['birth_date'])
+    fixed_date = datetime(2002, 1, 1)
+    employees['age'] = ((fixed_date - employees['birth_date']).dt.days / 365.25).astype(int)
 
-st.title("HR Analytics Dashboard")
-st.subheader("اسأل سؤال للحصول على Visualization")
+    # دمج بيانات الأقسام
+    df_departments = pd.merge(dept_emp, department, left_on='department_id', right_on='id', how='left')
 
-# قائمة الأسئلة
-questions = [
-    "توزيع الجنس لكل قسم",
-    "متوسط الرواتب لكل قسم",
-    "معدل دوران الموظفين لكل قسم",
-    "الفجوة بين الجنسين في الرواتب"
+    # دمج كل البيانات
+    df_merged = pd.merge(employees, salary, left_on='id', right_on='employee_id', how='left')
+    df_merged = pd.merge(df_merged, df_departments, left_on='id', right_on='employee_id', how='left')
+
+    # استخراج السنة والشهر
+    df_merged['year'] = pd.to_datetime(df_merged['hire_date']).dt.year
+    df_merged['month'] = pd.to_datetime(df_merged['hire_date']).dt.month
+
+    return employees, salary, department, dept_emp, df_merged
+
+employees, salary, department, dept_emp, df_merged = load_data()
+
+# 🧩 واجهة Streamlit
+st.markdown(f"<h1 style='color:{pink}; text-align:center;'>💼 HR Analytics Dashboard</h1>", unsafe_allow_html=True)
+st.markdown("---")
+
+options = [
+    "Top 10 Employees per Department",
+    "Highest Paid Employee per Department",
+    "Average Salary per Year"
 ]
 
-selected_question = st.selectbox("اختر سؤال:", questions)
+question = st.selectbox("Choose a business insight:", options)
+center_button = st.button("✨ Show me the Insight ✨")
 
-# عرض Visualization بناءً على السؤال
-if selected_question == "توزيع الجنس لكل قسم":
-    gender_counts = employees.groupby(['dept_name', 'gender']).size().reset_index(name='count')
-    fig, ax = plt.subplots(figsize=(8,6))
-    for gender in gender_counts['gender'].unique():
-        subset = gender_counts[gender_counts['gender'] == gender]
-        ax.bar(subset['dept_name'], subset['count'], label=gender)
-    ax.set_title('توزيع الجنس لكل قسم')
-    ax.set_ylabel('عدد الموظفين')
-    ax.set_xticklabels(gender_counts['dept_name'], rotation=45, ha='right')
-    ax.legend()
-    st.pyplot(fig)
+if center_button and question:
+    fig = None
 
-elif selected_question == "متوسط الرواتب لكل قسم":
-    merged = employees.merge(salaries, on='emp_no')
-    avg_salary = merged.groupby('dept_name')['salary'].mean().sort_values()
-    fig, ax = plt.subplots(figsize=(8,6))
-    avg_salary.plot(kind='bar', ax=ax)
-    ax.set_title('متوسط الرواتب لكل قسم')
-    ax.set_ylabel('متوسط الراتب')
-    st.pyplot(fig)
+    if question == "Top 10 Employees per Department":
+        employee_avg_salary = df_merged.groupby(
+            ['id_x', 'first_name', 'last_name', 'dept_name']
+        )['amount'].mean().reset_index()
 
-elif selected_question == "معدل دوران الموظفين لكل قسم":
-    turnover = employees.groupby('dept_name')['status'].value_counts(normalize=True).unstack().fillna(0)
-    if 'Terminated' in turnover.columns:
-        turnover_rate = turnover['Terminated'] * 100
-        fig, ax = plt.subplots(figsize=(8,6))
-        turnover_rate.plot(kind='bar', ax=ax, color='red')
-        ax.set_title('معدل دوران الموظفين لكل قسم')
-        ax.set_ylabel('النسبة المئوية')
-        st.pyplot(fig)
-    else:
-        st.warning("لا توجد بيانات كافية لحساب معدل الدوران")
+        def top_employees_per_department(df, n=10):
+            return df.nlargest(n, 'amount')
 
-elif selected_question == "الفجوة بين الجنسين في الرواتب":
-    merged = employees.merge(salaries, on='emp_no')
-    gender_gap = merged.groupby('gender')['salary'].mean()
-    fig, ax = plt.subplots(figsize=(6,6))
-    gender_gap.plot(kind='bar', ax=ax, color=['blue', 'pink'])
-    ax.set_title('متوسط الرواتب حسب الجنس')
-    st.pyplot(fig)
+        top_10 = employee_avg_salary.groupby('dept_name').apply(top_employees_per_department).reset_index(drop=True)
+        st.dataframe(top_10[['first_name','last_name','dept_name','amount']])
 
-# خيار تحميل الرسوم
-buf = io.BytesIO()
-fig.savefig(buf, format="png")
-st.download_button(
-    label="تحميل الرسم كصورة",
-    data=buf.getvalue(),
-    file_name="visualization.png",
-    mime="image/png"
-)
+    elif question == "Highest Paid Employee per Department":
+        employee_avg_salary = df_merged.groupby(
+            ['id_x', 'first_name', 'last_name', 'dept_name']
+        )['amount'].mean().reset_index()
+
+        highest_paid_per_dept = employee_avg_salary.groupby('dept_name').first().reset_index()
+        highest_paid_per_dept['full_name'] = highest_paid_per_dept['first_name'] + ' ' + highest_paid_per_dept['last_name']
+
+        fig = px.bar(
+            highest_paid_per_dept,
+            x='full_name',
+            y='amount',
+            color='dept_name',
+            title='Highest Paid Employee per Department',
+            labels={'full_name': 'Employee Name', 'amount': 'Salary', 'dept_name': 'Department'}
+        )
+        fig.update_layout(xaxis={'categoryorder':'total descending'})
+
+    elif question == "Average Salary per Year":
+        avg_salary_per_year = df_merged.groupby('year')['amount'].mean().reset_index()
+        fig = px.line(avg_salary_per_year, x='year', y='amount', title='Average Salary Over Time')
+        fig.update_traces(mode='lines+markers')
+
+    if fig:
+        fig.update_layout(template='plotly_dark', plot_bgcolor='black', paper_bgcolor='black', font=dict(color=pink))
+        st.plotly_chart(fig, use_container_width=True)
+
