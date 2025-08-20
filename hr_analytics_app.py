@@ -1,4 +1,4 @@
-# app.py
+# hr_analytics_app.py
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -8,120 +8,129 @@ import plotly.graph_objects as go
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder
+from sklearn.metrics import accuracy_score
 
-st.set_page_config(page_title="HR Analytics Dashboard", layout="wide")
-
-st.title("🔍 HR Analytics Dashboard & Bonus Predictor")
-
-# =========================
-# Step 1: Upload CSV files
-# =========================
-salary_file = st.file_uploader("Upload salary.csv", type="csv")
-employee_file = st.file_uploader("Upload employee.csv", type="csv")
-department_file = st.file_uploader("Upload department.csv", type="csv")
-dept_emp_file = st.file_uploader("Upload department_employee.csv", type="csv")
-
-if salary_file and employee_file and department_file and dept_emp_file:
-    salary = pd.read_csv(salary_file)
-    employee = pd.read_csv(employee_file)
-    department = pd.read_csv(department_file)
-    dept_emp = pd.read_csv(dept_emp_file)
-
-    st.success("✅ All files loaded successfully!")
-
-    # =========================
-    # Step 2: Prepare data
-    # =========================
+# ----------------------------
+# تحميل البيانات المحلية
+# ----------------------------
+@st.cache_data
+def load_data():
+    salary = pd.read_csv("salary.csv")
+    employee = pd.read_csv("employee.csv")
+    dept_emp = pd.read_csv("department_employee.csv")
+    department = pd.read_csv("department.csv")
+    title = pd.read_csv("title.csv")
+    
+    # حساب العمر
     employee['birth_date'] = pd.to_datetime(employee['birth_date'])
-    employee['age'] = (pd.to_datetime('2002-01-01') - employee['birth_date']).dt.days // 365
-
+    employee['age'] = datetime.now().year - employee['birth_date'].dt.year
+    
+    # دمج البيانات
     df_merged = employee.merge(salary, left_on='id', right_on='employee_id', how='left')
-    df_departments = dept_emp.merge(department, left_on='department_id', right_on='id', how='left')
-    df_merged = df_merged.merge(df_departments, left_on='id', right_on='employee_id', how='left')
+    df_merged = df_merged.merge(dept_emp, left_on='id', right_on='employee_id', how='left')
+    df_merged = df_merged.merge(department, left_on='department_id', right_on='id', how='left')
+    
+    return employee, salary, department, dept_emp, df_merged, title
 
-    # =========================
-    # Step 3: Business Questions
-    # =========================
-    st.header("📊 Business Questions Dashboard")
-    option = st.selectbox("Choose an insight:", [
-        "Top salaries",
-        "Salary growth",
-        "Department with highest average salary",
-        "Salary vs Tenure",
-        "Gender pay gap",
-        "Titles with highest pay"
-    ])
+employee, salary, department, dept_emp, df_merged, title = load_data()
 
-    if option == "Top salaries":
-        top = salary.groupby('employee_id')['amount'].max().sort_values(ascending=False).head(10)
-        st.dataframe(top)
+# ----------------------------
+# Streamlit UI
+# ----------------------------
+st.title("💼 HR Analytics Dashboard")
+st.markdown("---")
 
-    elif option == "Salary growth":
-        emp_growth = salary.groupby('employee_id')['amount'].agg(['min','max'])
-        emp_growth['growth_%'] = ((emp_growth['max'] - emp_growth['min']) / emp_growth['min'])*100
-        st.bar_chart(emp_growth['growth_%'])
+# خيارات التحليل
+options = [
+    "Top Salaries",
+    "Salary Growth Over Time",
+    "Average Tenure per Department",
+    "Salary vs Tenure Analysis",
+    "Department with Highest Avg Salary",
+    "Gender Pay Gap",
+    "Titles with Highest Pay",
+    "Moved Departments Tracking",
+    "Turnover Analysis",
+]
 
-    elif option == "Department with highest average salary":
-        merged = df_merged.groupby('dept_name')['amount'].mean().sort_values(ascending=False)
-        st.bar_chart(merged)
+question = st.selectbox("Choose a business insight:", options)
+center_button = st.button("✨ Show Insight ✨")
 
-    elif option == "Salary vs Tenure":
-        if 'company_tenure' in df_merged.columns:
-            fig = px.scatter(df_merged, x='company_tenure', y='amount', color='dept_name',
-                             title='Salary vs Tenure by Department', hover_data=['first_name','last_name'])
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.warning("Column 'company_tenure' not found!")
+if center_button:
+    if question == "Top Salaries":
+        top = salary.groupby('employee_id')['amount'].max().sort_values(ascending=False).head(10).reset_index()
+        top = top.merge(employee[['id','first_name','last_name']], left_on='employee_id', right_on='id')
+        top['full_name'] = top['first_name'] + ' ' + top['last_name']
+        fig = px.bar(top, x='full_name', y='amount', title="💰 Top 10 Salaries")
+        st.plotly_chart(fig)
 
-    elif option == "Gender pay gap":
-        if 'gender' in df_merged.columns:
-            gender_avg = df_merged.groupby('gender')['amount'].mean()
-            st.bar_chart(gender_avg)
-        else:
-            st.warning("Column 'gender' not found!")
+    elif question == "Salary Growth Over Time":
+        salary['from_date'] = pd.to_datetime(salary['from_date'])
+        salary['year'] = salary['from_date'].dt.year
+        avg_salary = salary.groupby('year')['amount'].mean().reset_index()
+        fig = px.line(avg_salary, x='year', y='amount', title="📈 Average Salary Growth Over Time")
+        st.plotly_chart(fig)
 
-    elif option == "Titles with highest pay":
-        title_avg = df_merged.groupby('title')['amount'].mean().sort_values(ascending=False).head(10)
-        st.bar_chart(title_avg)
+    elif question == "Department with Highest Avg Salary":
+        merged = df_merged.groupby('dept_name')['amount'].mean().reset_index().sort_values(by='amount', ascending=False)
+        fig = px.bar(merged, x='dept_name', y='amount', title="🏢 Department with Highest Avg Salary")
+        st.plotly_chart(fig)
 
-    # =========================
-    # Step 4: Bonus Prediction
-    # =========================
-    st.header("🤖 Bonus Prediction")
-    df_bonus = df_merged.copy()
-    df_bonus['bonus'] = ((df_bonus['amount'] - df_bonus['amount'].shift(1)) / df_bonus['amount'].shift(1)) > 0.05
-    df_bonus['bonus'] = df_bonus['bonus'].astype(int)
-    df_bonus.dropna(inplace=True)
+    elif question == "Salary vs Tenure Analysis":
+        if 'company_tenure' not in df_merged.columns:
+            df_merged['company_tenure'] = (pd.to_datetime('2025-01-01') - pd.to_datetime(df_merged['hire_date'])).dt.days/365
+        fig = px.scatter(df_merged, x='company_tenure', y='amount', color='dept_name',
+                         hover_data=['first_name','last_name'], title="⏳ Salary vs Tenure by Department")
+        st.plotly_chart(fig)
+    
+    else:
+        st.warning("⚠️ This insight is not yet implemented.")
 
-    # Encode categorical
+# ----------------------------
+# Bonus Prediction
+# ----------------------------
+st.markdown("---")
+st.header("🤖 Bonus Prediction")
+
+with st.form("bonus_form"):
+    salary_input = st.number_input("Current Salary", min_value=0)
+    tenure_input = st.number_input("Tenure (Years)", min_value=0)
+    dept_input = st.selectbox("Department", df_merged['dept_name'].unique())
+    title_input = st.selectbox("Title", df_merged['title'].dropna().unique())
+    gender_input = st.selectbox("Gender", ['M','F'])
+    submit_button = st.form_submit_button("Predict Bonus")
+
+if submit_button:
+    # إعداد البيانات للتنبؤ
+    df_model = df_merged[['amount','company_tenure','dept_name','title','gender']].dropna()
+    df_model['bonus'] = ((df_model['amount'].shift(-1) - df_model['amount'])/df_model['amount']) > 0.05
+    df_model.dropna(inplace=True)
+    
+    # ترميز الفئات
     le_dept = LabelEncoder()
-    df_bonus['dept_name_enc'] = le_dept.fit_transform(df_bonus['dept_name'].astype(str))
     le_title = LabelEncoder()
-    df_bonus['title_enc'] = le_title.fit_transform(df_bonus['title'].astype(str))
-
-    X = df_bonus[['amount','dept_name_enc','title_enc','age']]
-    y = df_bonus['bonus']
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-
-    model = RandomForestClassifier()
-    model.fit(X_train, y_train)
-
-    st.subheader("Enter Employee Info for Prediction:")
-    salary_input = st.number_input("Current Salary")
-    dept_input = st.selectbox("Department", df_bonus['dept_name'].unique())
-    title_input = st.selectbox("Title", df_bonus['title'].unique())
-    age_input = st.number_input("Age", min_value=18, max_value=100, value=30)
-
-    if st.button("Predict Bonus"):
-        input_df = pd.DataFrame({
-            'amount':[salary_input],
-            'dept_name_enc':[le_dept.transform([dept_input])[0]],
-            'title_enc':[le_title.transform([title_input])[0]],
-            'age':[age_input]
-        })
-        prediction = model.predict(input_df)[0]
-        if prediction == 1:
-            st.success("🎉 Employee likely to get a bonus!")
-        else:
-            st.warning("😕 Employee unlikely to get a bonus.")
-
+    le_gender = LabelEncoder()
+    df_model['dept_enc'] = le_dept.fit_transform(df_model['dept_name'])
+    df_model['title_enc'] = le_title.fit_transform(df_model['title'])
+    df_model['gender_enc'] = le_gender.fit_transform(df_model['gender'])
+    
+    X = df_model[['amount','company_tenure','dept_enc','title_enc','gender_enc']]
+    y = df_model['bonus']
+    
+    clf = RandomForestClassifier(n_estimators=100, random_state=42)
+    clf.fit(X, y)
+    
+    # تحويل إدخال المستخدم
+    input_df = pd.DataFrame({
+        'amount':[salary_input],
+        'company_tenure':[tenure_input],
+        'dept_enc':[le_dept.transform([dept_input])[0]],
+        'title_enc':[le_title.transform([title_input])[0]],
+        'gender_enc':[le_gender.transform([gender_input])[0]]
+    })
+    
+    pred = clf.predict(input_df)[0]
+    if pred:
+        st.success("🎉 This employee is likely to get a bonus!")
+    else:
+        st.info("❌ This employee is unlikely to get a bonus.")
