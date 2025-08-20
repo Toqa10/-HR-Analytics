@@ -2,109 +2,87 @@ import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
+import io
 
-# إعداد صفحة التطبيق
-st.set_page_config(page_title="HR Analytics Dashboard", layout="wide")
-
-# خلفية بلون ثابت وتنسيق CSS للكروت
-st.markdown(
-    """
-    <style>
-    .stApp {
-        background-color: #f5f7fa;
-    }
-    .card {
-        background-color: white;
-        padding: 20px;
-        border-radius: 15px;
-        box-shadow: 0px 4px 12px rgba(0, 0, 0, 0.1);
-        margin-bottom: 20px;
-    }
-    h1 {
-        color: #2c3e50;
-        text-align: center;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True
+# ========== إعداد الصفحة ==========
+st.set_page_config(
+    page_title="HR Analytics Dashboard",
+    page_icon="📊",
+    layout="wide"
 )
 
-# عنوان التطبيق
-st.markdown("<h1>HR Analytics Dashboard</h1>", unsafe_allow_html=True)
+# CSS لتصميم الخلفية والبطاقات
+st.markdown("""
+    <style>
+    .stApp {
+        background-color: #f5f5f5;
+        color: #333333;
+        font-family: "Arial", sans-serif;
+    }
+    .card {
+        background: white;
+        padding: 20px;
+        border-radius: 15px;
+        box-shadow: 0px 4px 12px rgba(0,0,0,0.1);
+        margin-bottom: 20px;
+    }
+    .card h3 {
+        text-align: center;
+        color: #1a73e8;
+    }
+    </style>
+""", unsafe_allow_html=True)
 
-# رفع الملفات
-st.markdown("<div class='card'>", unsafe_allow_html=True)
-st.subheader("Upload HR Datasets")
-employee_file = st.file_uploader("Upload employee.csv", type=["csv"])
-department_file = st.file_uploader("Upload department.csv", type=["csv"])
-salary_file = st.file_uploader("Upload salary.csv", type=["csv"])
-st.markdown("</div>", unsafe_allow_html=True)
+# ========== تحميل البيانات ==========
+@st.cache_data
+def load_data():
+    employees = pd.read_csv("employees.csv")
+    salary = pd.read_csv("salary.csv")
+    dept = pd.read_csv("department.csv")
+    return employees, salary, dept
 
-if employee_file and department_file and salary_file:
-    employees = pd.read_csv(employee_file)
-    departments = pd.read_csv(department_file)
-    salaries = pd.read_csv(salary_file)
+employees, salary, dept = load_data()
 
-    # دمج البيانات
-    df = pd.merge(employees, departments, on="dept_id")
-    df = pd.merge(df, salaries, on="emp_id")
+# ========== عنوان التطبيق ==========
+st.title("📊 HR Analytics Dashboard")
+st.write("اكتب سؤالًا متعلقًا ببيانات الموارد البشرية للحصول على Visualization مناسب")
 
-    # اختيار السؤال
-    st.markdown("<div class='card'>", unsafe_allow_html=True)
-    st.subheader("Ask a Question")
-    question = st.selectbox(
-        "Choose an HR Insight:",
-        [
-            "Gender Distribution by Department",
-            "Average Salary by Department",
-            "Turnover Rate by Department",
-            "Salary Distribution",
-            "Department Headcount"
-        ]
-    )
-    st.markdown("</div>", unsafe_allow_html=True)
+# ========== حقل السؤال ==========
+question = st.text_input("اكتب سؤالك هنا:")
 
-    # عرض الشارت المناسب
-    st.markdown("<div class='card'>", unsafe_allow_html=True)
-    st.subheader("Visualization")
+# ========== معالجة السؤال ==========
+def show_gender_distribution():
+    st.markdown('<div class="card"><h3>Gender Distribution per Department</h3>', unsafe_allow_html=True)
+    gender_counts = employees.groupby(['dept_name', 'gender']).size().reset_index(name='count')
+    fig, ax = plt.subplots(figsize=(10,6))
+    sns.barplot(x='dept_name', y='count', hue='gender', data=gender_counts, ax=ax)
+    plt.xticks(rotation=45)
+    plt.title("Gender Distribution per Department")
+    st.pyplot(fig)
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png")
+    st.download_button("Download Chart", data=buf, file_name="gender_distribution.png", mime="image/png")
+    st.markdown('</div>', unsafe_allow_html=True)
 
-    if question == "Gender Distribution by Department":
-        gender_counts = df.groupby(['dept_name', 'gender']).size().reset_index(name='count')
-        plt.figure(figsize=(10,6))
-        sns.barplot(data=gender_counts, x='dept_name', y='count', hue='gender')
-        plt.xticks(rotation=45)
-        plt.title('Gender Distribution by Department')
-        st.pyplot(plt)
+def show_salary_trends():
+    st.markdown('<div class="card"><h3>Salary Trends Over Time</h3>', unsafe_allow_html=True)
+    salary["year"] = pd.to_datetime(salary["from_date"]).dt.year
+    avg_salary = salary.groupby("year")["salary"].mean().reset_index()
+    fig, ax = plt.subplots(figsize=(10,6))
+    sns.lineplot(x="year", y="salary", data=avg_salary, ax=ax, marker="o")
+    plt.title("Average Salary Trends")
+    st.pyplot(fig)
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png")
+    st.download_button("Download Chart", data=buf, file_name="salary_trends.png", mime="image/png")
+    st.markdown('</div>', unsafe_allow_html=True)
 
-    elif question == "Average Salary by Department":
-        avg_salary = df.groupby('dept_name')['salary'].mean().reset_index()
-        plt.figure(figsize=(10,6))
-        sns.barplot(data=avg_salary, x='dept_name', y='salary', palette='coolwarm')
-        plt.xticks(rotation=45)
-        plt.title('Average Salary by Department')
-        st.pyplot(plt)
-
-    elif question == "Turnover Rate by Department":
-        turnover = df.groupby('dept_name')['status'].apply(lambda x: (x=='Left').mean()*100).reset_index()
-        plt.figure(figsize=(10,6))
-        sns.barplot(data=turnover, x='dept_name', y='status', palette='magma')
-        plt.xticks(rotation=45)
-        plt.title('Turnover Rate by Department (%)')
-        st.pyplot(plt)
-
-    elif question == "Salary Distribution":
-        plt.figure(figsize=(10,6))
-        sns.histplot(df['salary'], bins=30, kde=True, color='blue')
-        plt.title('Salary Distribution')
-        st.pyplot(plt)
-
-    elif question == "Department Headcount":
-        headcount = df['dept_name'].value_counts().reset_index()
-        headcount.columns = ['Department', 'Count']
-        plt.figure(figsize=(10,6))
-        sns.barplot(data=headcount, x='Department', y='Count', palette='viridis')
-        plt.xticks(rotation=45)
-        plt.title('Department Headcount')
-        st.pyplot(plt)
-
-    st.markdown("</div>", unsafe_allow_html=True)
+# ========== الربط مع الأسئلة ==========
+if question:
+    question_lower = question.lower()
+    if "gender" in question_lower or "distribution" in question_lower:
+        show_gender_distribution()
+    elif "salary" in question_lower or "trend" in question_lower:
+        show_salary_trends()
+    else:
+        st.warning("⚠️ هذا السؤال غير مدعوم حاليًا.")
