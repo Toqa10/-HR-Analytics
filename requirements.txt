@@ -3,9 +3,9 @@ pandas
 numpy
 plotly
 scikit-learn
-imbalanced-learn
-matplotlib
-seaborn
+patool
+
+
 
 
 
