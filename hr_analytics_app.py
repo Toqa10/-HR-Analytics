@@ -40,7 +40,7 @@ for col in ['age', 'title', 'dept_name', 'company_tenure', 'moved_department']:
 emp_snapshot = current_emp_snapshot.copy()
 
 # 💻 واجهة Streamlit
-st.markdown(f"<h1 style='color:{pink}; text-align:center;'>💼 HR Analytics Dashboard</h1>", unsafe_allow_html=True)
+st.markdown(f"<h1 style='color:{pink}; text-align:center;'> HR Analytics Dashboard</h1>", unsafe_allow_html=True)
 st.markdown("---")
 
 # خيارات المستخدم
@@ -136,4 +136,3 @@ if center_button and question:
     if fig:
         st.plotly_chart(fig, use_container_width=True)
 
-st.markdown(f"<p style='color:{pink}; font-size:12px; text-align:center;'>Made with ❤️ by Mayar</p>", unsafe_allow_html=True)
