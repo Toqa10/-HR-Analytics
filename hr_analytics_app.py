@@ -12,7 +12,6 @@ st.set_page_config(page_title="HR Analytics Dashboard", layout="wide")
 with st.sidebar:
     st.markdown("## ⚙ Settings")
     dark = st.toggle("🌗 Dark Mode", value=True)
-    st.caption("اختر التبويب وشاهد الوصف + الاستنتاجات + التوصيات تحت كل شارت")
 
 PLOTLY_TEMPLATE = "plotly_dark" if dark else "plotly_white"
 UI_TEXT = "#e5e7eb" if dark else "#0f172a"
