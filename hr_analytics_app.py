@@ -1,191 +1,205 @@
+# hr_dashboard.py
 import streamlit as st
 import pandas as pd
-import numpy as np
 import plotly.express as px
-import plotly.graph_objects as go
-from datetime import datetime
 
-# ========================== PAGE SETUP ==========================
-st.set_page_config(page_title="HR Analytics Dashboard", layout="wide")
+# ===============================================
+# Helper Functions
+# ===============================================
+def has_cols(df, cols):
+    return all(col in df.columns for col in cols)
 
-# -------------------------- THEME SWITCH ------------------------
-with st.sidebar:
-    st.markdown("## ⚙ Settings")
-    dark = st.toggle("🌗 Dark Mode", value=True)
+def card(title, fig, desc="", insights=[], recs=[]):
+    st.subheader(title)
+    st.plotly_chart(fig, use_container_width=True)
+    if desc:
+        st.markdown(f"**Description:** {desc}")
+    if insights:
+        st.markdown("**Insights:**")
+        for i in insights:
+            st.markdown(f"- {i}")
+    if recs:
+        st.markdown("**Recommendations:**")
+        for r in recs:
+            st.markdown(f"- {r}")
+    st.markdown("---")
 
-PLOTLY_TEMPLATE = "plotly_dark" if dark else "plotly_white"
-UI_TEXT = "#e5e7eb" if dark else "#0f172a"
-UI_BG = "#0b1021" if dark else "#ffffff"
-UI_PANEL = "#111827" if dark else "#f8fafc"
-
+# ===============================================
+# Palette
+# ===============================================
 PALETTES = {
-    "demo": {"seq": px.colors.sequential.Blues,  "primary": "#0284c7", "accent": "#06b6d4"},
-    "pay":  {"seq": px.colors.sequential.Greens, "primary": "#16a34a", "accent": "#84cc16"},
-    "promo":{"seq": px.colors.sequential.Purples,"primary": "#7c3aed", "accent": "#ec4899"},
-    "ret":  {"seq": px.colors.sequential.OrRd,   "primary": "#f97316", "accent": "#ef4444"},
+    'demo': {'primary':'#636EFA','accent':'#EF553B'},
+    'pay': {'primary':'#00CC96','accent':'#AB63FA'},
+    'promo': {'primary':'#FFA15A','accent':'#19D3F3'},
+    'ret': {'primary':'#FF6692','accent':'#B6E880'}
 }
 
-st.markdown(f"""
-<style>
-  .stApp {{ background:{UI_BG}; color:{UI_TEXT}; }}
-  .card {{ background:{UI_PANEL}; border-radius:16px; padding:1rem; margin-bottom:1rem; }}
-  h1,h2,h3 {{ color:#cbd5e1 !important; }}
-  .muted {{ opacity:.85; }}
-  .notes b {{ color:#cbd5e1; }}
-</style>
-""", unsafe_allow_html=True)
+# ===============================================
+# Load Data
+# ===============================================
+st.title("📊 HR Analytics Dashboard")
+st.markdown("Visual insights into your HR data.")
 
-# ============================ HELPERS ===========================
-def to_dt(s):
-    return pd.to_datetime(s, errors="coerce")
+uploaded_file = st.file_uploader("Upload your HR CSV snapshot", type="csv")
+if uploaded_file:
+    snapshot = pd.read_csv(uploaded_file)
 
-@st.cache_data
-def latest_per_emp(df, sort_col):
-    if sort_col not in df.columns:
-        df = df.copy(); df[sort_col] = pd.Timestamp("1970-01-01")
-    key = 'employee_id' if 'employee_id' in df.columns else ('id' if 'id' in df.columns else None)
-    if key is None:
-        return df
-    return df.rename(columns={key:'employee_id'})\
-             .sort_values(["employee_id", sort_col])\
-             .groupby("employee_id", as_index=False).tail(1)
+    # Sidebar navigation
+    page = st.sidebar.selectbox(
+        "Select HR Section",
+        ["👤 Demographics", "💵 Salaries & Compensation",
+         "🚀 Promotions & Career Growth", "🧲 Retention & Turnover"]
+    )
 
-def fig_style(fig, title=None):
-    fig.update_layout(template=PLOTLY_TEMPLATE, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
-    if title:
-        fig.update_layout(title=dict(text=title, x=0.02, xanchor="left"))
-    return fig
+    # ===============================================
+    # 1. Demographics
+    # ===============================================
+    if page == "👤 Demographics":
+        pal = PALETTES['demo']
 
-def card(title: str, fig=None, table: pd.DataFrame|None=None, desc:str="", insights:list[str]|None=None, recs:list[str]|None=None):
-    st.markdown(f"<div class='card'><h3>{title}</h3>", unsafe_allow_html=True)
-    if fig is not None:
-        st.plotly_chart(fig_style(fig), use_container_width=True)
-    if table is not None:
-        st.dataframe(table, use_container_width=True)
-    if desc or insights or recs:
-        st.markdown("<div class='notes'>", unsafe_allow_html=True)
-        if desc: st.markdown(f"Description: {desc}")
-        if insights:
-            st.markdown("Insights:")
-            for i in insights: st.markdown(f"- {i}")
-        if recs:
-            st.markdown("Recommendations:")
-            for r in recs: st.markdown(f"- {r}")
-        st.markdown("</div>", unsafe_allow_html=True)
-    st.markdown("</div>", unsafe_allow_html=True)
+        if 'age' in snapshot.columns:
+            df = snapshot.dropna(subset=['age'])
+            if not df.empty:
+                fig = px.histogram(df, x='age', nbins=40, color_discrete_sequence=[pal['primary']])
+                card(
+                    "🎂 Age Distribution", fig,
+                    desc="Histogram of employees' ages.",
+                    insights=["Dominant age bands and outliers."],
+                    recs=["Tailor L&D and benefits by age clusters."]
+                )
 
-def has_cols(df: pd.DataFrame, cols: list[str]) -> bool:
-    return set(cols).issubset(df.columns)
+        if 'gender' in snapshot.columns:
+            df = snapshot['gender'].value_counts().reset_index()
+            df.columns = ['gender','count']
+            fig = px.pie(df, values='count', names='gender', color_discrete_sequence=px.colors.sequential.Blues)
+            card(
+                "⚥ Gender Distribution", fig,
+                desc="Percentage of male vs female employees.",
+                insights=["Identify gender balance or imbalance."],
+                recs=["Consider diversity initiatives if imbalance exists."]
+            )
 
-def safe_rename_id(df: pd.DataFrame) -> pd.DataFrame:
-    if 'employee_id' in df.columns:
-        return df.copy()
-    if 'id' in df.columns:
-        return df.rename(columns={'id':'employee_id'}).copy()
-    return df.copy()
+        if 'dept_name' in snapshot.columns:
+            df = snapshot['dept_name'].value_counts().reset_index()
+            df.columns = ['Department','Count']
+            fig = px.bar(df, x='Department', y='Count', color='Count', color_continuous_scale=px.colors.sequential.Blues)
+            card(
+                "🏢 Department Distribution", fig,
+                desc="Number of employees per department.",
+                insights=["Shows staffing levels and potential bottlenecks."],
+                recs=["Review hiring needs per department."]
+            )
 
-# ======================== LOAD & PREP DATA ======================
-@st.cache_data
-def load_data():
-    salary = pd.read_csv("salary.csv")
-    employee = pd.read_csv("employee.csv")
-    snap = pd.read_csv("current_employee_snapshot.csv")
-    dept = pd.read_csv("department.csv")
-    dept_emp = pd.read_csv("department_employee.csv")
-    dept_mgr = pd.read_csv("department_manager.csv")
-    title = pd.read_csv("title.csv")
+    # ===============================================
+    # 2. Salaries & Compensation
+    # ===============================================
+    elif page == "💵 Salaries & Compensation":
+        pal = PALETTES['pay']
 
-    for df, cols in [
-        (salary, ["from_date","to_date"]),
-        (dept_emp,["from_date","to_date"]),
-        (title,   ["from_date","to_date"]),
-        (employee,["birth_date","hire_date","termination_date"]),
-    ]:
-        for c in cols:
-            if c in df.columns: df[c] = to_dt(df[c])
+        if 'latest_salary' in snapshot.columns:
+            df = snapshot.dropna(subset=['latest_salary'])
+            fig = px.histogram(df, x='latest_salary', nbins=50, color_discrete_sequence=[pal['primary']])
+            card(
+                "💰 Salary Distribution", fig,
+                desc="Distribution of current salaries.",
+                insights=["Identify clusters, outliers, and ranges."],
+                recs=["Review pay parity and adjust compensation bands if needed."]
+            )
 
-    emp = safe_rename_id(employee)
-    emp["age"] = datetime.now().year - to_dt(emp["birth_date"]).dt.year if "birth_date" in emp.columns else np.nan
-    emp["company_tenure"] = (pd.Timestamp.today() - to_dt(emp["hire_date"])).dt.days/365.25 if "hire_date" in emp.columns else np.nan
+        if has_cols(snapshot, ['dept_name','latest_salary']):
+            df = snapshot.groupby('dept_name')['latest_salary'].median().reset_index()
+            fig = px.bar(df, x='dept_name', y='latest_salary', color='latest_salary', color_continuous_scale=px.colors.sequential.Greens)
+            card(
+                "🏢 Median Salary by Department", fig,
+                desc="Median salary per department.",
+                insights=["Highlights which departments have higher/lower pay."],
+                recs=["Adjust budgets or compensation strategy by department."]
+            )
 
-    dept_emp = safe_rename_id(dept_emp)
-    if {"employee_id","dept_id"}.issubset(dept_emp.columns) and {"dept_id","dept_name"}.issubset(dept.columns):
-        d_latest = latest_per_emp(dept_emp, "to_date" if "to_date" in dept_emp.columns else "from_date").merge(dept, on="dept_id", how="left")
-        d_latest = d_latest[["employee_id","dept_name"]]
-    else:
-        d_latest = snap[[c for c in ["employee_id","dept_name","id"] if c in snap.columns]].copy()
-        d_latest = safe_rename_id(d_latest)[["employee_id","dept_name"]].drop_duplicates()
+        if has_cols(snapshot, ['company_tenure','latest_salary']):
+            df = snapshot.dropna(subset=['company_tenure','latest_salary'])
+            fig = px.scatter(df, x='company_tenure', y='latest_salary', color_discrete_sequence=[pal['accent']])
+            card(
+                "⏱ Salary vs Tenure", fig,
+                desc="Scatter plot of salary vs years in company.",
+                insights=["Shows pay progression with tenure."],
+                recs=["Review promotion and raise policies."]
+            )
 
-    title = safe_rename_id(title)
-    if {"employee_id","title"}.issubset(title.columns):
-        t_latest = latest_per_emp(title, "to_date" if "to_date" in title.columns else "from_date")[['employee_id','title']]
-    else:
-        t_latest = snap[[c for c in ["employee_id","title","id"] if c in snap.columns]].copy()
-        t_latest = safe_rename_id(t_latest)[["employee_id","title"]].drop_duplicates()
+    # ===============================================
+    # 3. Promotions & Career Growth
+    # ===============================================
+    elif page == "🚀 Promotions & Career Growth":
+        pal = PALETTES['promo']
 
-    salary = safe_rename_id(salary)
-    if {"employee_id","amount"}.issubset(salary.columns):
-        s_latest = latest_per_emp(salary, "from_date")[['employee_id','amount']].rename(columns={'amount':'latest_salary'})
-    else:
-        s_latest = pd.DataFrame(columns=["employee_id","latest_salary"])
+        if 'title' in snapshot.columns:
+            df = snapshot['title'].value_counts().reset_index()
+            df.columns = ['Title','Count']
+            fig = px.bar(df, x='Title', y='Count', color='Count', color_continuous_scale=px.colors.sequential.Purples)
+            card(
+                "🏷 Job Title Distribution", fig,
+                desc="Distribution of current job titles.",
+                insights=["Shows how employees are spread across positions."],
+                recs=["Identify roles with promotion opportunities."]
+            )
 
-    snapshot = emp.merge(d_latest, on="employee_id", how="left")\
-                  .merge(t_latest, on="employee_id", how="left")\
-                  .merge(s_latest, on="employee_id", how="left")
+        if has_cols(snapshot, ['employee_id','title']):
+            promotions = snapshot.sort_values(['employee_id','title']).groupby('employee_id').size().reset_index(name='promotions')
+            fig = px.histogram(promotions, x='promotions', nbins=10, color_discrete_sequence=[pal['primary']])
+            card(
+                "📈 Promotions Count per Employee", fig,
+                desc="Number of promotions each employee received.",
+                insights=["Highlights growth paths."],
+                recs=["Identify employees with low promotion frequency for engagement planning."]
+            )
 
-    snap = safe_rename_id(snap)
-    extras = [c for c in snap.columns if c not in snapshot.columns and c != 'employee_id']
-    if extras:
-        snapshot = snapshot.merge(snap[["employee_id"]+extras], on="employee_id", how="left")
+        if has_cols(snapshot, ['title','company_tenure']):
+            df = snapshot.groupby('title')['company_tenure'].mean().reset_index()
+            fig = px.bar(df, x='title', y='company_tenure', color='company_tenure', color_continuous_scale=px.colors.sequential.Purples)
+            card(
+                "⏳ Average Tenure per Title", fig,
+                desc="Average years employees spend per title.",
+                insights=["Shows time needed before promotion."],
+                recs=["Use for career path planning and L&D focus."]
+            )
 
-    return salary, employee, snapshot, dept_emp, dept, dept_mgr, title
+    # ===============================================
+    # 4. Retention & Turnover
+    # ===============================================
+    elif page == "🧲 Retention & Turnover":
+        pal = PALETTES['ret']
 
-salary, employee, snapshot, dept_emp, dept, dept_mgr, title = load_data()
-for col in ["dept_name","title","company_tenure","age","latest_salary"]:
-    if col not in snapshot.columns: snapshot[col] = np.nan
+        if 'termination_date' in snapshot.columns:
+            df = snapshot['termination_date'].dropna()
+            fig = px.histogram(df, x='termination_date', nbins=50, color_discrete_sequence=[pal['primary']])
+            card(
+                "❌ Terminations Over Time", fig,
+                desc="Histogram of employee terminations.",
+                insights=["Shows spikes in turnover."],
+                recs=["Investigate causes during peak periods."]
+            )
 
-# ============================ HEADER ===========================
-st.markdown("""
-<h1 style='text-align:center;'>📊 HR Analytics Dashboard</h1>
-<p style='text-align:center;' class='muted'>30 interactive charts across Demographics, Salaries, Promotions, and Retention. Each chart includes Description, Insights, and Recommendations.</p>
-""", unsafe_allow_html=True)
-st.markdown("---")
+        if has_cols(snapshot, ['dept_name','termination_date']):
+            df = snapshot[snapshot['termination_date'].notna()]
+            df = df['dept_name'].value_counts().reset_index()
+            df.columns = ['Department','Terminations']
+            fig = px.bar(df, x='Department', y='Terminations', color='Terminations', color_continuous_scale=px.colors.sequential.OrRd)
+            card(
+                "🏢 Department Turnover", fig,
+                desc="Terminations by department.",
+                insights=["Departments with high turnover are highlighted."],
+                recs=["Target retention programs in these departments."]
+            )
 
-# ==================== SIDEBAR NAVIGATION ======================
-with st.sidebar:
-    st.markdown("## 📂 Navigate Dashboard")
-    page = st.radio("Select Page:", [
-        "👤 Demographics",
-        "💵 Salaries & Compensation",
-        "🚀 Promotions & Career Growth",
-        "🧲 Retention & Turnover"
-    ])
+        if has_cols(snapshot, ['company_tenure','termination_date']):
+            df = snapshot[snapshot['termination_date'].notna()]
+            fig = px.histogram(df, x='company_tenure', nbins=40, color_discrete_sequence=[pal['accent']])
+            card(
+                "⏱ Tenure at Exit", fig,
+                desc="Tenure distribution of employees who left.",
+                insights=["Identifies typical retention period."],
+                recs=["Enhance retention strategies at critical tenure periods."]
+            )
 
-# ====================== PAGE DISPLAY =========================
-if page == "👤 Demographics":
-    pal = PALETTES['demo']
-    # Insert all d1 content here (the entire demographics section)
-    # Example: Age histogram
-    if 'age' in snapshot.columns:
-        df = snapshot.dropna(subset=['age'])
-        if not df.empty:
-            fig = px.histogram(df, x='age', nbins=40, color_discrete_sequence=[pal['primary']])
-            card("🎂 Age Distribution", fig,
-                 desc="Histogram of employees' ages.",
-                 insights=["Highlights dominant age bands and outliers."],
-                 recs=["Tailor L&D and benefits by age clusters."])
-
-elif page == "💵 Salaries & Compensation":
-    pal = PALETTES['pay']
-    # Insert all d2 content here (salaries section)
-    pass
-
-elif page == "🚀 Promotions & Career Growth":
-    pal = PALETTES['promo']
-    # Insert all d3 content here (promotions section)
-    pass
-
-elif page == "🧲 Retention & Turnover":
-    pal = PALETTES['ret']
-    # Insert all d4 content here (retention section)
-    pass
+else:
+    st.info("Upload a CSV file to display HR Analytics Dashboard.")
