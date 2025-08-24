@@ -196,4 +196,58 @@ if page=="👤 Demographics":
         fig = px.bar(gdept, x='dept_name', y='Count', color='Gender', barmode='stack')
         card("🚻 Gender Ratio by Department", fig)
 
-    if 'Age x Tenure Heatmap' in charts and {'age','company_tenure'}.issubset(snapshot.columns
+    if 'Age x Tenure Heatmap' in charts and {'age','company_tenure'}.issubset(snapshot.columns):
+        tmp = snapshot.dropna(subset=['age','company_tenure'])
+        fig = px.density_heatmap(tmp, x='age', y='company_tenure', nbinsx=20, nbinsy=20, color_continuous_scale=pal['seq'])
+        card("🌡 Age vs Tenure Heatmap", fig)
+
+# ============================ SALARIES ============================
+if page=="💵 Salaries":
+    pal = PALETTES['pay']
+    charts = st.sidebar.multiselect("Select charts to display:", [
+        "Salary Distribution","Avg Salary by Dept","Top Earners","Salary vs Age"
+    ], default=[
+        "Salary Distribution","Avg Salary by Dept","Top Earners","Salary vs Age"
+    ])
+
+    if 'Salary Distribution' in charts and 'latest_salary' in snapshot.columns:
+        df = snapshot.dropna(subset=['latest_salary'])
+        fig = px.histogram(df, x='latest_salary', nbins=40, color_discrete_sequence=[pal['primary']])
+        card("💰 Salary Distribution", fig)
+
+    if 'Avg Salary by Dept' in charts and {'latest_salary','dept_name'}.issubset(snapshot.columns):
+        avg = snapshot.groupby('dept_name', as_index=False)['latest_salary'].mean()
+        fig = px.bar(avg, x='dept_name', y='latest_salary', color_discrete_sequence=[pal['accent']])
+        fig.update_xaxes(tickangle=45)
+        card("🏢 Average Salary by Department", fig)
+
+    if 'Top Earners' in charts and 'latest_salary' in snapshot.columns:
+        top = snapshot.sort_values('latest_salary', ascending=False).head(20)
+        fig = px.bar(top, x='first_name', y='latest_salary', color='latest_salary', color_continuous_scale=pal['seq'])
+        card("🌟 Top 20 Highest Paid Employees", fig)
+
+    if 'Salary vs Age' in charts and {'latest_salary','age'}.issubset(snapshot.columns):
+        fig = px.scatter(snapshot.dropna(subset=['latest_salary','age']), x='age', y='latest_salary', color='dept_name')
+        card("📊 Salary vs Age Scatter", fig)
+
+# ============================ PROMOTIONS =========================
+if page=="🚀 Promotions":
+    pal = PALETTES['promo']
+    charts = st.sidebar.multiselect("Select charts to display:", [
+        "Promotion Counts","Avg Tenure to Promotion","Promotion by Dept"
+    ], default=[
+        "Promotion Counts","Avg Tenure to Promotion","Promotion by Dept"
+    ])
+    # You can add promotion charts here once promotion data is ready
+    st.info("Promotion charts placeholder. Add promotion dataset to display.")
+
+# ============================ RETENTION ==========================
+if page=="🧲 Retention":
+    pal = PALETTES['ret']
+    charts = st.sidebar.multiselect("Select charts to display:", [
+        "Termination Reasons","Tenure Distribution","Retention by Dept"
+    ], default=[
+        "Termination Reasons","Tenure Distribution","Retention by Dept"
+    ])
+    # You can add retention charts here once data is ready
+    st.info("Retention charts placeholder. Add retention dataset to display.")
