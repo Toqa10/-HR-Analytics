@@ -1,183 +1,154 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
 import plotly.express as px
-from datetime import datetime
+import plotly.io as pio
+from io import BytesIO
 
-# ========================== PAGE SETUP ==========================
 st.set_page_config(page_title="HR Analytics Dashboard", layout="wide")
 
-# ========================== LOAD DATA ==========================
+# --- Load Data ---
 @st.cache_data
 def load_data():
-    employee = pd.read_csv("employee.csv")
-    salary = pd.read_csv("salary.csv") if "salary.csv" in st.session_state else pd.DataFrame()
-    title = pd.read_csv("title.csv") if "title.csv" in st.session_state else pd.DataFrame()
-    return employee, salary, title
+    employee = pd.read_csv("employee.csv", parse_dates=['hire_date', 'birth_date', 'termination_date'], dayfirst=True)
+    salary = pd.read_csv("salary.csv", parse_dates=['from_date', 'to_date'])
+    promotion = pd.read_csv("promotion.csv", parse_dates=['promotion_date'])
+    return employee, salary, promotion
 
-employee, salary, title = load_data()
+employee, salary, promotion = load_data()
 
-# ========================== DATA PREP ==========================
-if 'id' in employee.columns:
-    employee = employee.rename(columns={'id': 'employee_id'})
+# --- Function to download figures ---
+def download_plot(fig, filename="figure.png"):
+    buf = BytesIO()
+    fig.write_image(buf, format="png")
+    st.download_button("Download Chart", data=buf, file_name=filename, mime="image/png")
 
-def to_dt(df, col):
-    if col in df.columns:
-        df[col] = pd.to_datetime(df[col], errors='coerce')
-    return df
+# --- Sidebar Navigation ---
+st.sidebar.title("Navigation")
+page = st.sidebar.radio("Go to", ["Demographics", "Salaries", "Promotions", "Retention"])
 
-for col in ['birth_date','hire_date','termination_date']:
-    employee = to_dt(employee, col)
+# --- DEMOGRAPHICS ---
+if page == "Demographics":
+    st.header("Employee Demographics")
+    st.sidebar.markdown("## Filters for Demographics")
+    show_gender_chart = st.sidebar.checkbox("Show Gender Distribution", value=True)
+    show_age_chart = st.sidebar.checkbox("Show Age Distribution", value=True)
 
-# Compute additional columns
-employee['age'] = datetime.now().year - employee['birth_date'].dt.year
-employee['company_tenure'] = (pd.Timestamp.today() - employee['hire_date']).dt.days/365.25
+    if 'gender' in employee.columns and show_gender_chart:
+        gen = employee.groupby('gender').size().reset_index(name='count')
+        fig1 = px.pie(gen, names='gender', values='count', title="Gender Distribution",
+                      color_discrete_sequence=px.colors.qualitative.Set2)
+        st.plotly_chart(fig1, use_container_width=True)
+        download_plot(fig1, "gender_distribution.png")
 
-# ========================== SIDEBAR FILTER ==========================
-st.sidebar.header("Filters for Dashboard")
+    if 'birth_date' in employee.columns and show_age_chart:
+        employee['age'] = (pd.Timestamp.today() - employee['birth_date']).dt.days // 365
+        fig2 = px.histogram(employee, x='age', nbins=30, title="Age Distribution",
+                            color_discrete_sequence=[px.colors.qualitative.Pastel1[0]])
+        st.plotly_chart(fig2, use_container_width=True)
+        download_plot(fig2, "age_distribution.png")
 
-# Demographics filters
-demographics_sharts = {
-    "Age Distribution": True,
-    "Age by Department": True,
-    "Headcount by Department": True,
-    "Gender Mix": True,
-}
+# --- SALARIES ---
+elif page == "Salaries":
+    st.header("Salaries Analysis")
+    st.sidebar.markdown("## Filters for Salaries")
+    show_avg_salary = st.sidebar.checkbox("Show Average Salary per Department", value=True)
+    show_salary_dist = st.sidebar.checkbox("Show Salary Distribution", value=True)
 
-st.sidebar.subheader("Demographics Charts")
-for chart in demographics_sharts:
-    demographics_sharts[chart] = st.sidebar.checkbox(chart, value=True)
+    if 'department' in salary.columns and 'salary' in salary.columns and show_avg_salary:
+        avg_sal = salary.groupby('department')['salary'].mean().reset_index()
+        fig3 = px.bar(avg_sal, x='department', y='salary', title="Average Salary per Department",
+                      color='salary', color_continuous_scale=px.colors.sequential.Plasma)
+        st.plotly_chart(fig3, use_container_width=True)
+        download_plot(fig3, "avg_salary_department.png")
 
-# Salaries filters
-salaries_charts = {
-    "Average Salary Over Time": True,
-    "Top 20 Salaries": True,
-    "Salary Distribution": True,
-    "Average Salary by Department": True,
-}
+    if 'salary' in salary.columns and show_salary_dist:
+        fig4 = px.histogram(salary, x='salary', nbins=50, title="Salary Distribution",
+                            color_discrete_sequence=[px.colors.qualitative.Bold[2]])
+        st.plotly_chart(fig4, use_container_width=True)
+        download_plot(fig4, "salary_distribution.png")
 
-st.sidebar.subheader("Salaries Charts")
-for chart in salaries_charts:
-    salaries_charts[chart] = st.sidebar.checkbox(chart, value=True)
+# --- PROMOTIONS ---
+elif page == "Promotions":
+    st.header("Promotions Analysis")
+    st.sidebar.markdown("## Filters for Promotions")
+    show_promo_count = st.sidebar.checkbox("Show Promotions Count by Department", value=True)
+    show_promo_trend = st.sidebar.checkbox("Show Promotions Over Time", value=True)
 
-# Promotions filters
-promotions_charts = {
-    "Promotions per Year": True,
-    "Time to First Promotion": True,
-    "Promotions by Department": True,
-}
+    # Date range filter
+    if 'promotion_date' in promotion.columns:
+        min_date = promotion['promotion_date'].min()
+        max_date = promotion['promotion_date'].max()
+        date_range = st.sidebar.date_input("Promotion Date Range", [min_date, max_date])
 
-st.sidebar.subheader("Promotions Charts")
-for chart in promotions_charts:
-    promotions_charts[chart] = st.sidebar.checkbox(chart, value=True)
+    promo_filtered = promotion.copy()
+    if 'promotion_date' in promotion.columns:
+        promo_filtered = promotion[(promotion['promotion_date'] >= pd.to_datetime(date_range[0])) &
+                                   (promotion['promotion_date'] <= pd.to_datetime(date_range[1]))]
 
-# Retention filters
-retention_charts = {
-    "Tenure Distribution": True,
-    "Attrition by Tenure Band": True,
-    "1-Year Retention by Hire Cohort": True,
-}
+    if 'department' in promo_filtered.columns and show_promo_count:
+        promo_count = promo_filtered.groupby('department').size().reset_index(name='count')
+        fig5 = px.bar(promo_count, x='department', y='count', title="Promotions Count by Department",
+                      color='count', color_continuous_scale=px.colors.sequential.Viridis)
+        st.plotly_chart(fig5, use_container_width=True)
+        download_plot(fig5, "promotions_count.png")
 
-st.sidebar.subheader("Retention Charts")
-for chart in retention_charts:
-    retention_charts[chart] = st.sidebar.checkbox(chart, value=True)
+    if 'promotion_date' in promo_filtered.columns and show_promo_trend:
+        promo_time = promo_filtered.groupby(promo_filtered['promotion_date'].dt.year).size().reset_index(name='count')
+        promo_time.rename(columns={'promotion_date':'year'}, inplace=True)
+        fig6 = px.line(promo_time, x='year', y='count', title="Promotions Over Time",
+                       markers=True, color_discrete_sequence=[px.colors.qualitative.Set1[0]])
+        st.plotly_chart(fig6, use_container_width=True)
+        download_plot(fig6, "promotions_trend.png")
 
-# ========================== TABS ==========================
-tab1, tab2, tab3, tab4 = st.tabs(["Demographics", "Salaries", "Promotions", "Retention"])
+# --- RETENTION ---
+elif page == "Retention":
+    st.header("Employee Retention Analysis")
+    st.sidebar.markdown("## Filters for Retention")
+    show_tenure = st.sidebar.checkbox("Show Tenure Distribution", value=True)
+    show_attrition_band = st.sidebar.checkbox("Show Attrition by Tenure Band", value=True)
+    show_retention_1y = st.sidebar.checkbox("Show 1-Year Retention by Hire Cohort", value=True)
 
-# ========================== DEMOGRAPHICS ==========================
-with tab1:
-    if demographics_sharts["Age Distribution"]:
-        fig = px.histogram(employee.dropna(subset=['age']), x='age', nbins=40, title="Age Distribution")
-        st.plotly_chart(fig, use_container_width=True)
+    e = employee.copy()
 
-    if demographics_sharts["Age by Department"] and 'dept_name' in employee.columns:
-        tmp = employee.dropna(subset=['age','dept_name'])
-        tmp['age_group'] = pd.cut(tmp['age'], [10,20,30,40,50,60,70], labels=['10s','20s','30s','40s','50s','60s'], right=False)
-        pivot = tmp.pivot_table(index='dept_name', columns='age_group', values='employee_id', aggfunc='count', fill_value=0).reset_index()
-        fig = px.bar(pivot, x='dept_name', y=pivot.columns[1:], barmode='stack', title="Age Group by Department")
-        st.plotly_chart(fig, use_container_width=True)
+    # Optional date range for hire date
+    if 'hire_date' in e.columns:
+        min_hire = e['hire_date'].min()
+        max_hire = e['hire_date'].max()
+        hire_range = st.sidebar.date_input("Hire Date Range", [min_hire, max_hire])
+        e = e[(e['hire_date'] >= pd.to_datetime(hire_range[0])) &
+              (e['hire_date'] <= pd.to_datetime(hire_range[1]))]
 
-    if demographics_sharts["Headcount by Department"] and 'dept_name' in employee.columns:
-        dep = employee['dept_name'].value_counts().reset_index()
-        dep.columns = ['Department','Headcount']
-        fig = px.bar(dep, x='Department', y='Headcount', title="Headcount by Department")
-        st.plotly_chart(fig, use_container_width=True)
+    if show_tenure and 'hire_date' in e.columns:
+        if 'termination_date' in e.columns:
+            e['company_tenure'] = ((e['termination_date'].fillna(pd.Timestamp.today()) - e['hire_date']).dt.days / 365.25)
+        else:
+            e['company_tenure'] = (pd.Timestamp.today() - e['hire_date']).dt.days / 365.25
+        fig7 = px.histogram(e, x='company_tenure', nbins=40, title="Tenure Distribution",
+                            color_discrete_sequence=[px.colors.qualitative.Pastel2[3]])
+        st.plotly_chart(fig7, use_container_width=True)
+        download_plot(fig7, "tenure_distribution.png")
 
-    if demographics_sharts["Gender Mix"] and 'gender' in employee.columns:
-        gen = employee['gender'].value_counts().reset_index()
-        gen.columns = ['gender','count']
-        fig = px.pie(gen, names='gender', values='count', title="Gender Mix")
-        st.plotly_chart(fig, use_container_width=True)
+    if show_attrition_band and 'hire_date' in e.columns:
+        if 'termination_date' in e.columns:
+            e_left = e.dropna(subset=['termination_date']).copy()
+            e_left['tenure_at_exit'] = (e_left['termination_date'] - e_left['hire_date']).dt.days / 365.25
+            e_left['band'] = pd.cut(e_left['tenure_at_exit'], [0,1,2,3,5,10,50],
+                                    labels=['<1y','1-2y','2-3y','3-5y','5-10y','10y+'], right=False)
+            fig8 = px.histogram(e_left, x='band', title="Attrition by Tenure Band",
+                                color_discrete_sequence=[px.colors.qualitative.Set3[2]])
+            st.plotly_chart(fig8, use_container_width=True)
+            download_plot(fig8, "attrition_tenure_band.png")
 
-# ========================== SALARIES ==========================
-with tab2:
-    if salaries_charts["Average Salary Over Time"] and not salary.empty:
-        s = salary.copy(); s['from_date'] = pd.to_datetime(s['from_date'], errors='coerce'); s['year'] = s['from_date'].dt.year
-        avg = s.groupby('year')['amount'].mean().reset_index()
-        fig = px.line(avg, x='year', y='amount', markers=True, title="Average Salary Over Time")
-        st.plotly_chart(fig, use_container_width=True)
-
-    if salaries_charts["Top 20 Salaries"] and not salary.empty:
-        top = salary.groupby('employee_id')['amount'].max().sort_values(ascending=False).head(20).reset_index()
-        fig = px.bar(top, x='employee_id', y='amount', title="Top 20 Salaries")
-        st.plotly_chart(fig, use_container_width=True)
-
-    if salaries_charts["Salary Distribution"] and not salary.empty:
-        fig = px.histogram(salary, x='amount', nbins=40, title="Salary Distribution")
-        st.plotly_chart(fig, use_container_width=True)
-
-    if salaries_charts["Average Salary by Department"] and not salary.empty and 'dept_name' in employee.columns:
-        m = employee[['employee_id','dept_name']].merge(salary[['employee_id','amount']], on='employee_id', how='left').dropna()
-        g = m.groupby('dept_name')['amount'].mean().reset_index().sort_values('amount', ascending=False)
-        fig = px.bar(g, x='dept_name', y='amount', title="Average Salary by Department")
-        st.plotly_chart(fig, use_container_width=True)
-
-# ========================== PROMOTIONS ==========================
-with tab3:
-    if promotions_charts["Promotions per Year"] and not title.empty:
-        tdf = title.copy(); tdf['from_date'] = pd.to_datetime(tdf['from_date'], errors='coerce')
-        tdf = tdf.sort_values(['employee_id','from_date'])
-        tdf['prev_title'] = tdf.groupby('employee_id')['title'].shift()
-        tdf['changed'] = (tdf['title'] != tdf['prev_title']).astype(int)
-        tdf['year'] = tdf['from_date'].dt.year
-        per_year = tdf[tdf['changed']==1].groupby('year').size().reset_index(name='Promotions')
-        fig = px.bar(per_year, x='year', y='Promotions', title="Promotions per Year")
-        st.plotly_chart(fig, use_container_width=True)
-
-    if promotions_charts["Time to First Promotion"] and not title.empty:
-        first_change = tdf[tdf['changed']==1].groupby('employee_id')['from_date'].min().reset_index().rename(columns={'from_date':'first_promo_date'})
-        tmp = employee[['employee_id','hire_date']].merge(first_change, on='employee_id', how='inner')
-        tmp['time_to_first_promo_years'] = (tmp['first_promo_date'] - tmp['hire_date']).dt.days/365.25
-        fig = px.histogram(tmp, x='time_to_first_promo_years', nbins=30, title="Time to First Promotion (Years)")
-        st.plotly_chart(fig, use_container_width=True)
-
-    if promotions_charts["Promotions by Department"] and not title.empty and 'dept_name' in employee.columns:
-        promos = tdf.groupby('employee_id')['changed'].sum().reset_index(name='promotion_count')
-        pmap = promos.merge(employee[['employee_id','dept_name']], on='employee_id', how='left')
-        by_dept = pmap.groupby('dept_name')['promotion_count'].sum().reset_index().sort_values('promotion_count', ascending=False)
-        fig = px.bar(by_dept, x='dept_name', y='promotion_count', title="Promotions by Department")
-        st.plotly_chart(fig, use_container_width=True)
-
-# ========================== RETENTION ==========================
-with tab4:
-    if retention_charts["Tenure Distribution"]:
-        fig = px.histogram(employee.dropna(subset=['company_tenure']), x='company_tenure', nbins=40, title="Tenure Distribution")
-        st.plotly_chart(fig, use_container_width=True)
-
-    if retention_charts["Attrition by Tenure Band"] and 'termination_date' in employee.columns:
-        e = employee.dropna(subset=['termination_date'])
-        e['tenure_at_exit'] = (e['termination_date'] - e['hire_date']).dt.days/365.25
-        e['band'] = pd.cut(e['tenure_at_exit'], [0,1,2,3,5,10,50], labels=['<1y','1-2y','2-3y','3-5y','5-10y','10y+'], right=False)
-        fig = px.histogram(e, x='band', title="Attrition by Tenure Band")
-        st.plotly_chart(fig, use_container_width=True)
-
-    if retention_charts["1-Year Retention by Hire Cohort"]:
-        e = employee.copy()
+    if show_retention_1y and 'hire_date' in e.columns:
         e['cohort'] = e['hire_date'].dt.year
-        e['left'] = ~e['termination_date'].isna()
-        e['retained_1y'] = (~e['left']) | ((e['termination_date'] - e['hire_date']).dt.days >= 365)
+        if 'termination_date' in e.columns:
+            e['left'] = ~e['termination_date'].isna()
+            e['retained_1y'] = (~e['left']) | ((e['termination_date'] - e['hire_date']).dt.days >= 365)
+        else:
+            e['retained_1y'] = True
         g = e.groupby('cohort')['retained_1y'].mean().reset_index()
-        g['Retention%_1y'] = g['retained_1y']*100
-        fig = px.bar(g, x='cohort', y='Retention%_1y', title="1-Year Retention by Hire Cohort")
-        st.plotly_chart(fig, use_container_width=True)
+        g['Retention%_1y'] = g['retained_1y'] * 100
+        fig9 = px.bar(g, x='cohort', y='Retention%_1y', title="1-Year Retention by Hire Cohort",
+                      color='Retention%_1y', color_continuous_scale=px.colors.sequential.Aggrnyl)
+        st.plotly_chart(fig9, use_container_width=True)
+        download_plot(fig9, "retention_1year.png")
